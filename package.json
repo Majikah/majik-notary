@@ -1,0 +1,75 @@
+{
+  "name": "@majikah/majik-notary",
+  "type": "module",
+  "description": "Chain-agnostic blockchain notarization library for Majik Signature. Creates independently verifiable proof-of-existence by anchoring sealed file hashes on-chain, with an initial implementation using the Solana blockchain.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "author": "Zelijah",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Majikah/majik-notary.git"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/jedlsf"
+  },
+  "keywords": [
+    "blockchain",
+    "web3",
+    "notarization",
+    "digital-notary",
+    "proof-of-existence",
+    "proof-of-integrity",
+    "content-authenticity",
+    "document-authenticity",
+    "document-integrity",
+    "tamper-evident",
+    "chain-anchoring",
+    "blockchain-notarization",
+    "cryptographic-proof",
+    "cryptographic-verification",
+    "immutable-audit-trail",
+    "trusted-timestamp",
+    "timestamping",
+    "document-signing",
+    "file-signing",
+    "solana",
+    "spl-memo",
+    "solana-memo",
+    "@solana/kit",
+    "majikah",
+    "majik-signature",
+    "majik-notary"
+  ],
+  "homepage": "https://github.com/Majikah/majik-notary#readme",
+  "bugs": {
+    "url": "https://github.com/Majikah/majik-notary/issues"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "package": "npm run build && npm version patch && git push && git push --tags",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:solbalance": "npx tsx scripts/show-devnet-balances.ts",
+    "test:keygentest": "npx tsx scripts/generate-test-keys.ts"
+  },
+  "dependencies": {
+    "@majikah/majik-key": "^0.3.2",
+    "@majikah/majik-signature": "^0.2.0",
+    "@solana/kit": "^7.0.0",
+    "@solana/spl-memo": "^0.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.9"
+  }
+}
