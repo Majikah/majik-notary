@@ -2,7 +2,7 @@
   "name": "@majikah/majik-notary",
   "type": "module",
   "description": "Chain-agnostic blockchain notarization library for Majik Signature. Creates independently verifiable proof-of-existence by anchoring sealed file hashes on-chain, with an initial implementation using the Solana blockchain.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "Apache-2.0",
   "author": "Zelijah",
   "main": "./dist/index.js",
