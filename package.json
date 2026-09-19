@@ -62,14 +62,14 @@
     "test:keygentest": "npx tsx scripts/generate-test-keys.ts"
   },
   "dependencies": {
-    "@majikah/majik-key": "^0.3.2",
-    "@majikah/majik-signature": "^0.2.0",
-    "@solana/kit": "^7.0.0",
-    "@solana/spl-memo": "^0.2.5"
+    "@majikah/majik-key": "^0.5.2",
+    "@majikah/majik-signature": "^0.6.0",
+    "@solana/kit": "^8.3.0",
+    "@solana/spl-memo": "^0.3.0"
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.2",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.9"
+    "vitest": "^5.0.1"
   }
 }
