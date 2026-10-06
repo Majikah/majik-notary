@@ -38,7 +38,7 @@ import {
   Base64EncodedWireTransaction,
 } from "@solana/kit";
 
-import { MEMO_PROGRAM_ADDRESS, type NotaryNetwork } from "./constants";
+import { MEMO_PROGRAM_ADDRESS, type NotaryNetwork } from "./constants.js";
 import { MajikChainAnchorTxSignature } from "@majikah/majik-signature";
 
 export const DEFAULT_DEVNET_RPC_URL = "https://api.devnet.solana.com" as const;

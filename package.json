@@ -8,6 +8,13 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "files": [
     "dist"
   ],
@@ -55,6 +62,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
+    "update": "npm i @majikah/majik-key@latest @majikah/majik-signature@latest @solana/kit@latest @solana/spl-memo@latest",
     "package": "npm run build && npm version patch && git push && git push --tags",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -62,14 +70,14 @@
     "test:keygentest": "npx tsx scripts/generate-test-keys.ts"
   },
   "dependencies": {
-    "@majikah/majik-key": "^0.5.2",
-    "@majikah/majik-signature": "^0.6.0",
-    "@solana/kit": "^8.3.0",
-    "@solana/spl-memo": "^0.3.0"
+    "@majikah/majik-key": "^1.0.2",
+    "@majikah/majik-signature": "^0.9.2",
+    "@solana/kit": "^8.4.0",
+    "@solana/spl-memo": "^0.3.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.4",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.3"
   }
 }

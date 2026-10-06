@@ -28,15 +28,15 @@ import type {
 } from "@majikah/majik-signature";
 import type { KeyPairSigner, Rpc, SolanaRpcApi } from "@solana/kit";
 
-import { buildMemo } from "./core/memo";
-import { NOTARY_CHAIN, type NotaryNetwork } from "./core/constants";
+import { buildMemo } from "./core/memo.js";
+import { NOTARY_CHAIN, type NotaryNetwork } from "./core/constants.js";
 import {
   buildRegisterTransaction,
   submitTransaction,
   pollConfirmation,
   fetchOnChainMemo,
   toKitSignature,
-} from "./core/solana";
+} from "./core/solana.js";
 
 /**
  * Public API for Majik Notary.
