@@ -21,6 +21,7 @@
 
 import {
   address,
+  AccountRole,
   createSolanaRpc,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
@@ -333,7 +334,7 @@ export async function completeRegisterTransaction(
     throw new Error("External transaction signatures must be an array");
   }
 
-  const transactionBytes = getBase64Encoder().encode(
+  const transactionBytes = getBase64Decoder().decode(
     draft.unsignedWireTransaction,
   );
   const decodedTransaction = getTransactionDecoder().decode(transactionBytes);
