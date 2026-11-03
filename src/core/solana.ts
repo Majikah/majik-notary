@@ -6,36 +6,49 @@
  *
  * Responsibilities:
  * - Create RPC clients for supported networks.
- * - Build and sign memo transactions.
+ * - Build private or externally co-signed memo transactions.
+ * - Verify and attach externally collected transaction signatures.
+ * - Complete transactions with the Majikah fee payer.
  * - Submit transactions to the network.
  * - Poll transaction confirmation status.
  * - Read memo data back from confirmed transactions.
  *
- * The API intentionally separates transaction construction, submission, and
- * confirmation polling so callers can implement asynchronous workflows instead
- * of blocking until finalization.
+ * Co-signing is deliberately separate from off-chain message signing. An
+ * additional signer is made a required signer of the actual Solana transaction
+ * message, and its Ed25519 signature is verified over those exact message
+ * bytes before the fee payer signs.
  */
 
 import {
   address,
+  AccountRole,
   createSolanaRpc,
   createTransactionMessage,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstructions,
   signTransactionMessageWithSigners,
+  partiallySignTransactionWithSigners,
+  assertIsFullySignedTransaction,
+  compileTransaction,
+  getTransactionDecoder,
   getSignatureFromTransaction,
   getBase64EncodedWireTransaction,
+  getBase64Encoder,
+  getBase64Decoder,
+  getPublicKeyFromAddress,
+  verifySignature,
   getBase58Encoder,
   signature as brandSignature,
   pipe,
+  type Address,
   type Rpc,
   type SolanaRpcApi,
   type KeyPairSigner,
   type Instruction,
-  AccountRole,
   type Signature,
-  Base64EncodedWireTransaction,
+  type SignatureBytes,
+  type Base64EncodedWireTransaction,
 } from "@solana/kit";
 
 import { MEMO_PROGRAM_ADDRESS, type NotaryNetwork } from "./constants.js";
@@ -73,6 +86,14 @@ export const DEFAULT_RPC_URLS: RpcUrlMap = Object.freeze({
   "mainnet-beta": "",
 });
 
+function encodeBase64Bytes(bytes: Uint8Array): string {
+  return getBase64Decoder().decode(bytes);
+}
+
+function decodeBase64Bytes(value: string): Uint8Array {
+  return getBase64Encoder().encode(value).slice();
+}
+
 /**
  * Builds an immutable RPC URL configuration by merging custom endpoints with
  * the library defaults.
@@ -96,7 +117,7 @@ export function createRpcClientByNetwork(
   const url = rpcUrls[network];
 
   if (!url) {
-    throw new Error(`No RPC URL configured for network: ${network}`);
+    throw new Error("No RPC URL configured for network: " + network);
   }
 
   return createSolanaRpc(url);
@@ -116,12 +137,14 @@ export function createRpcClient(
 /**
  * Creates a SPL Memo instruction compatible with @solana/kit.
  *
- * The memo program itself requires no accounts, but the fee payer is included
- * as a read-only signer so transaction authorship is visible in explorers.
+ * The fee payer and every additional address are declared as read-only
+ * signers. The Memo Program checks the supplied signer accounts, making each
+ * one a required signer of the transaction without granting write access.
  */
 function buildMemoInstruction(
   memo: string,
-  feePayerAddress: ReturnType<typeof address>,
+  feePayerAddress: Address,
+  additionalRequiredSigners: readonly Address[] = [],
 ): Instruction {
   return {
     programAddress: address(MEMO_PROGRAM_ADDRESS),
@@ -130,13 +153,17 @@ function buildMemoInstruction(
         address: feePayerAddress,
         role: AccountRole.READONLY_SIGNER,
       },
+      ...additionalRequiredSigners.map((signerAddress) => ({
+        address: signerAddress,
+        role: AccountRole.READONLY_SIGNER,
+      })),
     ],
     data: new TextEncoder().encode(memo),
   };
 }
 
 export interface BuiltTransaction {
-  /** Serialized transaction ready for sendTransaction(). */
+  /** Serialized, fully signed transaction ready for sendTransaction(). */
   wireTransaction: Base64EncodedWireTransaction;
 
   /** Transaction signature computed during signing. */
@@ -144,19 +171,119 @@ export interface BuiltTransaction {
 }
 
 /**
- * Builds and signs the memo transaction used to register a chain anchor.
+ * Options for building a transaction that requires one or more external
+ * signers in addition to the Majikah fee payer.
  *
- * The transaction is prepared for submission but is not broadcast to the
- * network. Call submitTransaction() to send it.
+ * Supplying this option always returns an unsigned draft. The fee payer is
+ * deliberately not asked to sign until all external signatures are collected.
+ */
+export interface BuildRegisterTransactionOptions {
+  /** Additional required transaction signers, excluding the fee payer. */
+  additionalRequiredSigners: readonly Address[];
+}
+
+/**
+ * Unsigned transaction draft prepared for external co-signing.
+ *
+ * unsignedWireTransaction contains the compiled transaction with empty
+ * signature slots. messageBytes is the exact compiled message that external
+ * signers must sign, Base64-encoded for transport.
+ */
+export interface RegisterTransactionDraft {
+  readonly version: 1;
+  readonly unsignedWireTransaction: Base64EncodedWireTransaction;
+  readonly messageBytes: string;
+  readonly feePayerAddress: Address;
+  readonly additionalRequiredSigners: readonly Address[];
+  readonly blockhash: string;
+  readonly lastValidBlockHeight: string;
+}
+
+/**
+ * An Ed25519 signature collected from an external transaction signer.
+ * The signature must cover the exact messageBytes in the draft.
+ */
+export interface ExternalTransactionSignature {
+  readonly address: Address;
+  readonly signature: Uint8Array;
+}
+
+/**
+ * Builds and signs a private memo transaction.
+ *
+ * This overload preserves the original behavior: the Majikah fee payer is the
+ * only required signer and signs immediately.
+ */
+export function buildRegisterTransaction(
+  memo: string,
+  feePayerSigner: KeyPairSigner,
+  rpc: Rpc<SolanaRpcApi>,
+): Promise<BuiltTransaction>;
+
+/**
+ * Builds an unsigned memo transaction draft that requires the supplied
+ * additional signers plus the Majikah fee payer.
+ *
+ * The fee payer signature is deferred until completeRegisterTransaction().
+ */
+export function buildRegisterTransaction(
+  memo: string,
+  feePayerSigner: KeyPairSigner,
+  rpc: Rpc<SolanaRpcApi>,
+  options: BuildRegisterTransactionOptions,
+): Promise<RegisterTransactionDraft>;
+
+/**
+ * Builds the memo transaction used to register a chain anchor.
+ *
+ * Without options, this retains the existing private one-signer flow.
+ * With additionalRequiredSigners, it returns an unsigned draft so the
+ * additional signers can sign the exact compiled Solana transaction message
+ * before the fee payer signs.
  */
 export async function buildRegisterTransaction(
   memo: string,
   feePayerSigner: KeyPairSigner,
   rpc: Rpc<SolanaRpcApi>,
-): Promise<BuiltTransaction> {
+  options?: BuildRegisterTransactionOptions,
+): Promise<BuiltTransaction | RegisterTransactionDraft> {
+  let additionalRequiredSigners: Address[] = [];
+
+  if (options) {
+    if (
+      !Array.isArray(options.additionalRequiredSigners) ||
+      options.additionalRequiredSigners.length === 0
+    ) {
+      throw new Error(
+        "Co-signed transaction drafts require at least one additional signer",
+      );
+    }
+
+    additionalRequiredSigners = options.additionalRequiredSigners.map(
+      (signerAddress) => address(signerAddress),
+    );
+
+    if (
+      new Set(additionalRequiredSigners).size !==
+      additionalRequiredSigners.length
+    ) {
+      throw new Error("Additional transaction signer addresses must be unique");
+    }
+
+    if (additionalRequiredSigners.includes(feePayerSigner.address)) {
+      throw new Error(
+        "The fee payer cannot also be supplied as an additional signer",
+      );
+    }
+  }
+
   const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
 
-  const instruction = buildMemoInstruction(memo, feePayerSigner.address);
+  const instruction = buildMemoInstruction(
+    memo,
+    feePayerSigner.address,
+    additionalRequiredSigners,
+  );
 
   const transactionMessage = pipe(
     createTransactionMessage({ version: 0 }),
@@ -165,16 +292,187 @@ export async function buildRegisterTransaction(
     (tx) => appendTransactionMessageInstructions([instruction], tx),
   );
 
-  const signedTransaction =
-    await signTransactionMessageWithSigners(transactionMessage);
-  const signature = getSignatureFromTransaction(signedTransaction);
-  const wireTransaction = getBase64EncodedWireTransaction(signedTransaction);
+  // Preserve the legacy private behavior exactly when no co-signers are
+  // requested. The additional-signer path must not sign with the fee payer yet.
+  if (!options) {
+    const signedTransaction =
+      await signTransactionMessageWithSigners(transactionMessage);
+    const signature = getSignatureFromTransaction(signedTransaction);
+    const wireTransaction = getBase64EncodedWireTransaction(signedTransaction);
 
-  return { wireTransaction, signature };
+    return { wireTransaction, signature };
+  }
+
+  const unsignedTransaction = compileTransaction(transactionMessage);
+
+  return {
+    version: 1,
+    unsignedWireTransaction:
+      getBase64EncodedWireTransaction(unsignedTransaction),
+    messageBytes: encodeBase64Bytes(unsignedTransaction.messageBytes.slice()),
+    feePayerAddress: feePayerSigner.address,
+    additionalRequiredSigners: Object.freeze([...additionalRequiredSigners]),
+    blockhash: latestBlockhash.blockhash,
+    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight.toString(),
+  };
 }
 
 /**
- * Broadcasts a previously built transaction.
+ * Verifies externally collected Ed25519 transaction signatures, attaches them
+ * to the unsigned draft, then signs the remaining fee-payer slot last.
+ *
+ * This function does not fetch or change the blockhash, transaction message,
+ * instructions, account metas, or fee payer. The returned BuiltTransaction
+ * can be passed directly to submitTransaction().
+ */
+export async function completeRegisterTransaction(
+  draft: RegisterTransactionDraft,
+  externalSignatures: readonly ExternalTransactionSignature[],
+  feePayerSigner: KeyPairSigner,
+): Promise<BuiltTransaction> {
+  if (!draft || draft.version !== 1) {
+    throw new Error("Unsupported or invalid register transaction draft");
+  }
+
+  if (feePayerSigner.address !== draft.feePayerAddress) {
+    throw new Error(
+      "The supplied fee payer does not match the transaction draft",
+    );
+  }
+
+  if (!Array.isArray(externalSignatures)) {
+    throw new Error("External transaction signatures must be an array");
+  }
+
+  const transactionBytes = decodeBase64Bytes(draft.unsignedWireTransaction);
+  const decodedTransaction = getTransactionDecoder().decode(transactionBytes);
+
+  const decodedMessageBase64 = encodeBase64Bytes(
+    decodedTransaction.messageBytes.slice(),
+  );
+
+  if (decodedMessageBase64 !== draft.messageBytes) {
+    throw new Error(
+      "Transaction message bytes do not match the prepared draft",
+    );
+  }
+
+  const transactionSignerAddresses = Object.keys(
+    decodedTransaction.signatures,
+  ) as Address[];
+
+  if (transactionSignerAddresses[0] !== feePayerSigner.address) {
+    throw new Error(
+      "The transaction fee payer is not the first required signer",
+    );
+  }
+
+  // A draft must be unsigned. Do not accept a draft containing signatures
+  // that were not collected through this completion call.
+  for (const signerAddress of transactionSignerAddresses) {
+    if (decodedTransaction.signatures[signerAddress] !== null) {
+      throw new Error("The supplied transaction draft is not unsigned");
+    }
+  }
+
+  const expectedAdditionalSigners = transactionSignerAddresses.filter(
+    (signerAddress) => signerAddress !== feePayerSigner.address,
+  );
+  const declaredAdditionalSigners = draft.additionalRequiredSigners.map(
+    (signerAddress) => address(signerAddress),
+  );
+
+  if (
+    declaredAdditionalSigners.length === 0 ||
+    new Set(declaredAdditionalSigners).size !==
+      declaredAdditionalSigners.length ||
+    expectedAdditionalSigners.length !== declaredAdditionalSigners.length ||
+    expectedAdditionalSigners.some(
+      (signerAddress) => !declaredAdditionalSigners.includes(signerAddress),
+    )
+  ) {
+    throw new Error(
+      "Draft additional signers do not match the compiled transaction",
+    );
+  }
+
+  if (externalSignatures.length !== expectedAdditionalSigners.length) {
+    throw new Error(
+      "A signature is required from every additional transaction signer",
+    );
+  }
+
+  const verifiedSignatures: Record<Address, SignatureBytes> = {};
+  const seenSigners = new Set<Address>();
+
+  for (const externalSignature of externalSignatures) {
+    const signerAddress = address(externalSignature.address);
+
+    if (!expectedAdditionalSigners.includes(signerAddress)) {
+      throw new Error(
+        "Unexpected external transaction signer: " + signerAddress,
+      );
+    }
+
+    if (seenSigners.has(signerAddress)) {
+      throw new Error(
+        "Duplicate external transaction signature: " + signerAddress,
+      );
+    }
+    seenSigners.add(signerAddress);
+
+    if (
+      !(externalSignature.signature instanceof Uint8Array) ||
+      externalSignature.signature.length !== 64
+    ) {
+      throw new Error(
+        "Ed25519 transaction signatures must contain exactly 64 bytes",
+      );
+    }
+    
+
+    const publicKey = await getPublicKeyFromAddress(signerAddress);
+    const valid = await verifySignature(
+      publicKey,
+      externalSignature.signature as SignatureBytes,
+      decodedTransaction.messageBytes,
+    );
+
+    if (!valid) {
+      throw new Error(
+        "Invalid transaction signature from external signer: " + signerAddress,
+      );
+    }
+
+    verifiedSignatures[signerAddress] =
+      externalSignature.signature as SignatureBytes;
+  }
+
+  const transactionWithExternalSignatures = Object.freeze({
+    ...decodedTransaction,
+    signatures: Object.freeze({
+      ...decodedTransaction.signatures,
+      ...verifiedSignatures,
+    }),
+  });
+
+  // The external signatures are already verified and attached. The only
+  // signer passed to Kit now is the Majikah fee payer, so it signs last.
+  const completedTransaction = await partiallySignTransactionWithSigners(
+    [feePayerSigner],
+    transactionWithExternalSignatures,
+  );
+
+  assertIsFullySignedTransaction(completedTransaction);
+
+  return {
+    wireTransaction: getBase64EncodedWireTransaction(completedTransaction),
+    signature: getSignatureFromTransaction(completedTransaction),
+  };
+}
+
+/**
+ * Broadcasts a previously built, fully signed transaction.
  *
  * Returns the precomputed transaction signature.
  */
@@ -229,7 +527,7 @@ export async function pollConfirmation(
  * instruction.
  *
  * This function intentionally requests the raw JSON transaction encoding rather
- * than `jsonParsed`. The memo instruction data is decoded locally instead of
+ * than jsonParsed. The memo instruction data is decoded locally instead of
  * relying on RPC-provider-specific instruction parsers, ensuring consistent
  * behavior across different Solana RPC implementations.
  */
@@ -247,14 +545,13 @@ export async function fetchOnChainMemo(
   if (!tx) return null;
 
   const instructions = tx.transaction.message.instructions as ReadonlyArray<{
-    data: string; // base58-encoded, "json" encoding
+    data: string; // base58-encoded, json encoding
   }>;
 
   const firstInstruction = instructions[0];
   if (!firstInstruction?.data) return null;
 
-  // "data" is a base58 STRING; we want the raw bytes it represents, so this
-  // is the encode direction (string -> bytes), not decode (bytes -> string).
+  // data is a base58 STRING; encode converts it into the original bytes.
   const base58Encoder = getBase58Encoder();
   const dataBytes = base58Encoder.encode(firstInstruction.data);
 
