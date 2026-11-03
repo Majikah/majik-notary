@@ -221,6 +221,12 @@ describe("MajikNotary", () => {
   });
 
   describe("Transaction Co-signing", () => {
+    async function signDraft(draft: { unsignedWireTransaction: string }, signer: KeyPairSigner) {
+      const transaction = getTransactionDecoder().decode(getBase64Encoder().encode(draft.unsignedWireTransaction));
+      const [signatures] = await signer.signTransactions([transaction as any]);
+      return signatures[signer.address]!;
+    }
+
     it("should build an unsigned draft with the fee payer and cosigner as required signers", async () => {
       const draft = await buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
         additionalRequiredSigners: [signerB.address],
@@ -251,11 +257,7 @@ describe("MajikNotary", () => {
         additionalRequiredSigners: [signerB.address],
       });
 
-      const solanaIdentity = keyB.web3?.solana;
-      expect(solanaIdentity).toBeDefined();
-
-      const exactMessageBytes = getBase64Encoder().encode(draft.messageBytes);
-      const cosignerSignature = solanaIdentity!.sign(exactMessageBytes);
+      const cosignerSignature = await signDraft(draft, signerB);
 
       const built = await completeRegisterTransaction(
         draft,
@@ -292,11 +294,7 @@ describe("MajikNotary", () => {
         additionalRequiredSigners: [signerB.address],
       });
 
-      const solanaIdentity = keyB.web3?.solana;
-      expect(solanaIdentity).toBeDefined();
-
-      const exactMessageBytes = getBase64Encoder().encode(draft.messageBytes);
-      const invalidSignature = solanaIdentity!.sign(exactMessageBytes).slice();
+      const invalidSignature = (await signDraft(draft, signerB)).slice();
       invalidSignature[0] ^= 0xff;
 
       await expect(
@@ -316,11 +314,7 @@ describe("MajikNotary", () => {
         additionalRequiredSigners: [signerB.address],
       });
 
-      const solanaIdentity = keyB.web3?.solana;
-      expect(solanaIdentity).toBeDefined();
-
-      const exactMessageBytes = getBase64Encoder().encode(draft.messageBytes);
-      const cosignerSignature = solanaIdentity!.sign(exactMessageBytes);
+      const cosignerSignature = await signDraft(draft, signerB);
 
       await expect(
         completeRegisterTransaction(
