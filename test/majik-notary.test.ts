@@ -24,7 +24,7 @@ import {
   SEAL_HASH_HEX_LEN,
 } from "@majikah/majik-signature";
 import { loadFixtureKey } from "./helpers/crypto";
-import { KeyPairSigner, Rpc, SolanaRpcApi, getBase64Encoder, getTransactionDecoder } from "@solana/kit";
+import { KeyPairSigner, Rpc, SolanaRpcApi, getBase64Encoder, getBase64Decoder, getTransactionDecoder } from "@solana/kit";
 import { MajikKey } from "@majikah/majik-key";
 
 describe("MajikNotary", () => {
@@ -222,7 +222,7 @@ describe("MajikNotary", () => {
 
   describe("Transaction Co-signing", () => {
     async function signDraft(draft: { unsignedWireTransaction: string }, signer: KeyPairSigner) {
-      const transaction = getTransactionDecoder().decode(getBase64Encoder().encode(draft.unsignedWireTransaction));
+      const transaction = getTransactionDecoder().decode(getBase64Decoder().decode(draft.unsignedWireTransaction));
       const [signatures] = await signer.signTransactions([transaction as any]);
       return signatures[signer.address]!;
     }
@@ -272,7 +272,7 @@ describe("MajikNotary", () => {
       expect(built.wireTransaction).toBeTruthy();
 
       const completed = getTransactionDecoder().decode(
-        getBase64Encoder().encode(built.wireTransaction),
+        getBase64Decoder().decode(built.wireTransaction),
       );
 
       expect(completed.signatures[signerA.address]).not.toBeNull();
