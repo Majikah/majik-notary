@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   buildRegisterTransaction,
+  completeRegisterTransaction,
   buildRpcUrlMap,
   BuiltTransaction,
   ConfirmationStatus,
@@ -23,7 +24,7 @@ import {
   SEAL_HASH_HEX_LEN,
 } from "@majikah/majik-signature";
 import { loadFixtureKey } from "./helpers/crypto";
-import { KeyPairSigner, Rpc, SolanaRpcApi } from "@solana/kit";
+import { KeyPairSigner, Rpc, SolanaRpcApi, getBase64Encoder, getTransactionDecoder } from "@solana/kit";
 import { MajikKey } from "@majikah/majik-key";
 
 describe("MajikNotary", () => {
@@ -216,6 +217,137 @@ describe("MajikNotary", () => {
       await expect(
         buildRegisterTransaction(TEST_MEMO, solanaSigner, {} as any),
       ).rejects.toThrow();
+    });
+  });
+
+  describe("Transaction Co-signing", () => {
+    it("should build an unsigned draft with the fee payer and cosigner as required signers", async () => {
+      const draft = await buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+        additionalRequiredSigners: [signerB.address],
+      });
+
+      expect(draft.version).toBe(1);
+      expect(draft.feePayerAddress).toBe(signerA.address);
+      expect(draft.additionalRequiredSigners).toEqual([signerB.address]);
+      expect(draft.messageBytes).toBeTruthy();
+      expect(draft.unsignedWireTransaction).toBeTruthy();
+      expect(draft.blockhash).toBeTruthy();
+      expect(draft.lastValidBlockHeight).toBeTruthy();
+
+      const decoded = getTransactionDecoder().decode(
+        getBase64Encoder().encode(draft.unsignedWireTransaction),
+      );
+
+      expect(Object.keys(decoded.signatures)).toEqual([
+        signerA.address,
+        signerB.address,
+      ]);
+      expect(decoded.signatures[signerA.address]).toBeNull();
+      expect(decoded.signatures[signerB.address]).toBeNull();
+    });
+
+    it("should verify the cosigner signature and let the fee payer sign last", async () => {
+      const draft = await buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+        additionalRequiredSigners: [signerB.address],
+      });
+
+      const solanaIdentity = keyB.web3?.solana;
+      expect(solanaIdentity).toBeDefined();
+
+      const exactMessageBytes = getBase64Encoder().encode(draft.messageBytes);
+      const cosignerSignature = solanaIdentity!.sign(exactMessageBytes);
+
+      const built = await completeRegisterTransaction(
+        draft,
+        [{
+          address: signerB.address,
+          signature: cosignerSignature,
+        }],
+        signerA,
+      );
+
+      expect(built.signature).toBeTruthy();
+      expect(built.wireTransaction).toBeTruthy();
+
+      const completed = getTransactionDecoder().decode(
+        getBase64Encoder().encode(built.wireTransaction),
+      );
+
+      expect(completed.signatures[signerA.address]).not.toBeNull();
+      expect(completed.signatures[signerB.address]).not.toBeNull();
+    });
+
+    it("should reject a draft with a missing cosigner signature", async () => {
+      const draft = await buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+        additionalRequiredSigners: [signerB.address],
+      });
+
+      await expect(
+        completeRegisterTransaction(draft, [], signerA),
+      ).rejects.toThrow("A signature is required from every additional transaction signer");
+    });
+
+    it("should reject an invalid cosigner signature", async () => {
+      const draft = await buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+        additionalRequiredSigners: [signerB.address],
+      });
+
+      const solanaIdentity = keyB.web3?.solana;
+      expect(solanaIdentity).toBeDefined();
+
+      const exactMessageBytes = getBase64Encoder().encode(draft.messageBytes);
+      const invalidSignature = solanaIdentity!.sign(exactMessageBytes).slice();
+      invalidSignature[0] ^= 0xff;
+
+      await expect(
+        completeRegisterTransaction(
+          draft,
+          [{
+            address: signerB.address,
+            signature: invalidSignature,
+          }],
+          signerA,
+        ),
+      ).rejects.toThrow("Invalid transaction signature from external signer");
+    });
+
+    it("should reject a cosigner address that is not required by the transaction", async () => {
+      const draft = await buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+        additionalRequiredSigners: [signerB.address],
+      });
+
+      const solanaIdentity = keyB.web3?.solana;
+      expect(solanaIdentity).toBeDefined();
+
+      const exactMessageBytes = getBase64Encoder().encode(draft.messageBytes);
+      const cosignerSignature = solanaIdentity!.sign(exactMessageBytes);
+
+      await expect(
+        completeRegisterTransaction(
+          draft,
+          [{
+            address: signerC.address,
+            signature: cosignerSignature,
+          }],
+          signerA,
+        ),
+      ).rejects.toThrow("Unexpected external transaction signer");
+    });
+
+    it("should reject a duplicate additional signer when building a draft", async () => {
+      await expect(
+        buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+          additionalRequiredSigners: [signerB.address, signerB.address],
+        }),
+      ).rejects.toThrow("Additional transaction signer addresses must be unique");
+    });
+
+    it("should reject the fee payer being repeated as an additional signer", async () => {
+      await expect(
+        buildRegisterTransaction(TEST_MEMO, signerA, rpc, {
+          additionalRequiredSigners: [signerA.address],
+        }),
+      ).rejects.toThrow("The fee payer cannot also be supplied as an additional signer");
     });
   });
 
