@@ -24,7 +24,7 @@ import {
   SEAL_HASH_HEX_LEN,
 } from "@majikah/majik-signature";
 import { loadFixtureKey } from "./helpers/crypto";
-import { KeyPairSigner, Rpc, SolanaRpcApi, getBase64Encoder, getBase64Decoder, getTransactionDecoder } from "@solana/kit";
+import { KeyPairSigner, Rpc, SolanaRpcApi, getBase64Encoder, getTransactionDecoder } from "@solana/kit";
 import { MajikKey } from "@majikah/majik-key";
 
 describe("MajikNotary", () => {
@@ -221,8 +221,14 @@ describe("MajikNotary", () => {
   });
 
   describe("Transaction Co-signing", () => {
+    function decodeWireTransaction(wireTransaction: string) {
+      return getTransactionDecoder().decode(
+        getBase64Encoder().encode(wireTransaction).slice(),
+      );
+    }
+
     async function signDraft(draft: { unsignedWireTransaction: string }, signer: KeyPairSigner) {
-      const transaction = getTransactionDecoder().decode(getBase64Decoder().decode(draft.unsignedWireTransaction));
+      const transaction = decodeWireTransaction(draft.unsignedWireTransaction);
       const [signatures] = await signer.signTransactions([transaction as any]);
       return signatures[signer.address]!;
     }
@@ -240,9 +246,7 @@ describe("MajikNotary", () => {
       expect(draft.blockhash).toBeTruthy();
       expect(draft.lastValidBlockHeight).toBeTruthy();
 
-      const decoded = getTransactionDecoder().decode(
-        getBase64Decoder().decode(draft.unsignedWireTransaction),
-      );
+      const decoded = decodeWireTransaction(draft.unsignedWireTransaction);
 
       expect(Object.keys(decoded.signatures)).toEqual([
         signerA.address,
@@ -271,9 +275,7 @@ describe("MajikNotary", () => {
       expect(built.signature).toBeTruthy();
       expect(built.wireTransaction).toBeTruthy();
 
-      const completed = getTransactionDecoder().decode(
-        getBase64Decoder().decode(built.wireTransaction),
-      );
+      const completed = decodeWireTransaction(built.wireTransaction);
 
       expect(completed.signatures[signerA.address]).not.toBeNull();
       expect(completed.signatures[signerB.address]).not.toBeNull();

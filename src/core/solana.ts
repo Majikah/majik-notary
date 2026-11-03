@@ -86,6 +86,14 @@ export const DEFAULT_RPC_URLS: RpcUrlMap = Object.freeze({
   "mainnet-beta": "",
 });
 
+function encodeBase64Bytes(bytes: Uint8Array): string {
+  return getBase64Decoder().decode(bytes);
+}
+
+function decodeBase64Bytes(value: string): Uint8Array {
+  return getBase64Encoder().encode(value).slice();
+}
+
 /**
  * Builds an immutable RPC URL configuration by merging custom endpoints with
  * the library defaults.
@@ -255,7 +263,10 @@ export async function buildRegisterTransaction(
       (signerAddress) => address(signerAddress),
     );
 
-    if (new Set(additionalRequiredSigners).size !== additionalRequiredSigners.length) {
+    if (
+      new Set(additionalRequiredSigners).size !==
+      additionalRequiredSigners.length
+    ) {
       throw new Error("Additional transaction signer addresses must be unique");
     }
 
@@ -296,10 +307,9 @@ export async function buildRegisterTransaction(
 
   return {
     version: 1,
-    unsignedWireTransaction: getBase64EncodedWireTransaction(
-      unsignedTransaction,
-    ),
-    messageBytes: getBase64Encoder().encode(unsignedTransaction.messageBytes),
+    unsignedWireTransaction:
+      getBase64EncodedWireTransaction(unsignedTransaction),
+    messageBytes: encodeBase64Bytes(unsignedTransaction.messageBytes.slice()),
     feePayerAddress: feePayerSigner.address,
     additionalRequiredSigners: Object.freeze([...additionalRequiredSigners]),
     blockhash: latestBlockhash.blockhash,
@@ -334,13 +344,11 @@ export async function completeRegisterTransaction(
     throw new Error("External transaction signatures must be an array");
   }
 
-  const transactionBytes = getBase64Decoder().decode(
-    draft.unsignedWireTransaction,
-  );
+  const transactionBytes = decodeBase64Bytes(draft.unsignedWireTransaction);
   const decodedTransaction = getTransactionDecoder().decode(transactionBytes);
 
-  const decodedMessageBase64 = getBase64Encoder().encode(
-    decodedTransaction.messageBytes,
+  const decodedMessageBase64 = encodeBase64Bytes(
+    decodedTransaction.messageBytes.slice(),
   );
 
   if (decodedMessageBase64 !== draft.messageBytes) {
@@ -376,7 +384,8 @@ export async function completeRegisterTransaction(
 
   if (
     declaredAdditionalSigners.length === 0 ||
-    new Set(declaredAdditionalSigners).size !== declaredAdditionalSigners.length ||
+    new Set(declaredAdditionalSigners).size !==
+      declaredAdditionalSigners.length ||
     expectedAdditionalSigners.length !== declaredAdditionalSigners.length ||
     expectedAdditionalSigners.some(
       (signerAddress) => !declaredAdditionalSigners.includes(signerAddress),
@@ -430,8 +439,7 @@ export async function completeRegisterTransaction(
 
     if (!valid) {
       throw new Error(
-        "Invalid transaction signature from external signer: " +
-          signerAddress,
+        "Invalid transaction signature from external signer: " + signerAddress,
       );
     }
 
@@ -546,5 +554,5 @@ export async function fetchOnChainMemo(
   const base58Encoder = getBase58Encoder();
   const dataBytes = base58Encoder.encode(firstInstruction.data);
 
-  return new TextDecoder().decode(dataBytes);
+  return new TextDecoder().decode(dataBytes.slice());
 }
