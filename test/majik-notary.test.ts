@@ -241,7 +241,7 @@ describe("MajikNotary", () => {
       expect(draft.lastValidBlockHeight).toBeTruthy();
 
       const decoded = getTransactionDecoder().decode(
-        getBase64Encoder().encode(draft.unsignedWireTransaction),
+        getBase64Decoder().decode(draft.unsignedWireTransaction),
       );
 
       expect(Object.keys(decoded.signatures)).toEqual([
