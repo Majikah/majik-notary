@@ -298,7 +298,7 @@ export async function buildRegisterTransaction(
     unsignedWireTransaction: getBase64EncodedWireTransaction(
       unsignedTransaction,
     ),
-    messageBytes: getBase64Decoder().decode(unsignedTransaction.messageBytes),
+    messageBytes: getBase64Encoder().encode(unsignedTransaction.messageBytes),
     feePayerAddress: feePayerSigner.address,
     additionalRequiredSigners: Object.freeze([...additionalRequiredSigners]),
     blockhash: latestBlockhash.blockhash,
@@ -338,7 +338,7 @@ export async function completeRegisterTransaction(
   );
   const decodedTransaction = getTransactionDecoder().decode(transactionBytes);
 
-  const decodedMessageBase64 = getBase64Decoder().decode(
+  const decodedMessageBase64 = getBase64Encoder().encode(
     decodedTransaction.messageBytes,
   );
 
