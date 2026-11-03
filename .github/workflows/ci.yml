@@ -12,6 +12,9 @@ on:
       - master
 
   workflow_call:
+    secrets:
+      VITE_HELIUS_API_KEY:
+        required: true
 
 jobs:
   build-and-test:
@@ -42,6 +45,8 @@ jobs:
 
       - name: Test
         run: npm test --if-present
+        env:
+          VITE_HELIUS_API_KEY: ${{ secrets.VITE_HELIUS_API_KEY }}
 
       - name: Build
         run: npm run build

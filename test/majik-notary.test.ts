@@ -44,12 +44,19 @@ describe("MajikNotary", () => {
 
   const TEST_MEMO = buildMemo(TEST_SEAL_HASH);
 
-  const TEST_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${process.env.VITE_HELIUS_API_KEY}`;
+  const TEST_RPC_API_KEY = process.env.VITE_HELIUS_API_KEY;
+  const TEST_RPC_URL = `https://devnet.helius-rpc.com/?api-key=${TEST_RPC_API_KEY}`;
 
   let submittedTransaction: BuiltTransaction;
   let submittedSignature: string;
 
   beforeAll(async () => {
+    if (!TEST_RPC_API_KEY) {
+      throw new Error(
+        "VITE_HELIUS_API_KEY is required. Set it locally or configure it as a GitHub Actions repository secret.",
+      );
+    }
+
     rpc = createRpcClient(TEST_RPC_URL);
 
     [keyA, keyB, keyC, keyD] = await Promise.all([
