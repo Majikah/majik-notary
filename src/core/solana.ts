@@ -429,6 +429,7 @@ export async function completeRegisterTransaction(
         "Ed25519 transaction signatures must contain exactly 64 bytes",
       );
     }
+    
 
     const publicKey = await getPublicKeyFromAddress(signerAddress);
     const valid = await verifySignature(

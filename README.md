@@ -5,7 +5,6 @@
 
 ![npm](https://img.shields.io/npm/v/@majikah/majik-notary) ![npm downloads](https://img.shields.io/npm/dm/@majikah/majik-notary) ![npm bundle size](https://img.shields.io/bundlephobia/min/%40majikah%2Fmajik-notary) [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) ![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)
 
-
 ---
 
 > [!IMPORTANT]
